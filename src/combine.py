@@ -45,8 +45,8 @@ class AudioCombine:
         input_sample_rate_2: int = audio_2["sample_rate"]
 
         # Resample the audio if the sample rates are different
+        device: torch.device = comfy.model_management.get_torch_device()
         if input_sample_rate_1 != input_sample_rate_2:
-            device: torch.device = comfy.model_management.get_torch_device()
             if input_sample_rate_1 < input_sample_rate_2:
                 resample = Resample(input_sample_rate_1, input_sample_rate_2).to(device)
                 waveform_1: torch.Tensor = resample(waveform_1.to(device))
@@ -61,27 +61,29 @@ class AudioCombine:
             output_sample_rate = input_sample_rate_1
 
         # Ensure the audio is the same length
-        min_length = min(waveform_1.shape[-1], waveform_2.shape[-1])
-        if waveform_1.shape[-1] != min_length:
-            waveform_1 = waveform_1[..., :min_length]
-        if waveform_2.shape[-1] != min_length:
-            waveform_2 = waveform_2[..., :min_length]
+        max_length = max(waveform_1.shape[-1], waveform_2.shape[-1])
+
+        # Padding with zeros to match the maximum length
+        if waveform_1.shape[-1] != max_length:
+            waveform_1 = torch.nn.functional.pad(waveform_1, (0, max_length - waveform_1.size(-1)), 'constant', 0)
+        if waveform_2.shape[-1] != max_length:
+            waveform_2 = torch.nn.functional.pad(waveform_2, (0, max_length - waveform_2.size(-1)), 'constant', 0)
 
         match method:
             case "add":
-                waveform = waveform_1 + waveform_2
+                waveform = waveform_1.to(device) + waveform_2.to(device)
             case "subtract":
-                waveform = waveform_1 - waveform_2
+                waveform = waveform_1.to(device) - waveform_2.to(device)
             case "multiply":
-                waveform = waveform_1 * waveform_2
+                waveform = waveform_1.to(device) * waveform_2.to(device)
             case "divide":
-                waveform = waveform_1 / waveform_2
+                waveform = waveform_1.to(device) / waveform_2.to(device)
             case "mean":
-                waveform = (waveform_1 + waveform_2) / 2
+                waveform = (waveform_1.to(device) + waveform_2.to(device)) / 2
 
         return (
             {
-                "waveform": waveform,
+                "waveform": waveform.to('cpu'),
                 "sample_rate": output_sample_rate,
             },
         )
